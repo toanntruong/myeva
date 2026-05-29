@@ -149,7 +149,7 @@
 
 | ID | Task | Mô tả | Depends On | Size |
 |----|------|-------|------------|------|
-| P9-01 | Layout 3-panel cố định | CSS grid/flex: Left 240px | Center flex-grow | Right 320px, height 100vh | P0-02 | M |
+| P9-01 | Layout 3-panel cố định | CSS grid/flex: Left 240px \| Center flex-grow \| Right 320px, height 100vh | P0-02 | M |
 | P9-02 | Resizable panels | Kéo divider giữa các panel để resize | P9-01 | M |
 | P9-03 | Dark theme toàn app | Tailwind dark mode, màu nền `#111827`, text `#f3f4f6` | P0-02 | S |
 | P9-04 | Restore full state khi restart app | `onMount` ở App.tsx: load tasks + positions + edges từ DB → populate stores | P2-04, P2-05, P4-01 | M |
@@ -174,6 +174,43 @@
 
 ---
 
+## Phase 11 — Layer 1 Memory (File `memory.md`)
+
+| ID | Task | Mô tả | Depends On | Size |
+|----|------|-------|------------|------|
+| P11-01 | Tauri command `read_memory_file` | Rust: `std::fs::read_to_string("memory.md")`. Nếu file không tồn tại → `std::fs::write` tạo file trống → trả về `""`. Path resolve theo `std::env::current_dir()` | P2-02 | S |
+| P11-02 | Tauri command `open_memory_file` | Rust: mở `memory.md` bằng editor mặc định của hệ thống dùng crate `opener` hoặc `std::process::Command::new("explorer")`. Cho phép user edit thủ công | P11-01 | S |
+| P11-03 | Đăng ký commands vào `invoke_handler` | Thêm `read_memory_file`, `open_memory_file` vào `generate_handler![]` | P11-01, P11-02 | S |
+| P11-04 | Viết `store/chatStore.ts` | Zustand store cho Layer 1: `messages: Message[]` (conversation history), `appendMessage()`, `clearHistory()`. Type `Message = { role: 'user' \| 'assistant', content: string }` | P0-06 | S |
+| P11-05 | Hook đọc memory khi submit | Trong `ChatInput.tsx`, trước khi gọi API: `invoke('read_memory_file')` → nhận `memoryContent` string | P11-03, P8-01 | S |
+| P11-06 | Inject memory vào system prompt | Build payload API: đặt `memoryContent` vào `system` block (không phải `messages[]`) theo cấu trúc: `"Đọc nội dung memory sau trước khi thực hiện yêu cầu:\n\n<memory>\n${memoryContent}\n</memory>"` | P11-05 | S |
+| P11-07 | Cấu hình Prompt Caching cho system block | Thêm `cache_control: { type: "ephemeral" }` vào system block trong API request. Đảm bảo `memoryContent` byte-identical giữa các request để đạt cache hit | P11-06 | S |
+| P11-08 | Quản lý conversation history trong API call | Mỗi lần submit: gửi `messages: [...chatStore.messages, { role: 'user', content: userPrompt }]`. Sau khi nhận response: `appendMessage` cả user prompt lẫn assistant reply vào store | P11-04, P11-06 | M |
+| P11-09 | UI: nút "Open memory.md" | Nút nhỏ trên ChatInput area, click → `invoke('open_memory_file')`. Icon file/edit, tooltip "Chỉnh sửa memory" | P11-02, P8-01 | S |
+
+**AC Phase 11:** Nhập prompt → hệ thống tự đọc `memory.md` → inject vào system block → gọi API có `cache_control`. Lần gọi thứ 2 trở đi với cùng memory.md → response header xác nhận cache hit. File không tồn tại → tạo tự động, không crash.
+
+---
+
+## Phase 12 — Voice Mode (Batch STT)
+
+| ID | Task | Mô tả | Depends On | Size |
+|----|------|-------|------------|------|
+| P12-01 | Tauri command `start_recording` | Rust: khởi động ghi âm microphone local dùng crate `cpal` + `hound` (WAV). Lưu buffer vào memory hoặc file tạm `%TEMP%\myeva_recording.wav` | P2-02 | M |
+| P12-02 | Tauri command `stop_recording` | Rust: dừng ghi âm, flush buffer, trả về path file WAV đã hoàn chỉnh | P12-01 | S |
+| P12-03 | Tauri command `send_audio_to_stt` | Rust: đọc file WAV → HTTP POST multipart/form-data tới STT server URL (configurable). Dùng `reqwest` async. Trả về transcript string | P12-02 | M |
+| P12-04 | Viết `VoiceToggle.tsx` | Nút toggle mic trên ChatInput: trạng thái `idle` / `recording` / `processing`. Icon mic, màu đỏ khi recording | P8-01 | S |
+| P12-05 | Toggle ON → `start_recording` | Click bật toggle → `invoke('start_recording')` → cập nhật UI state sang `recording` | P12-01, P12-04 | S |
+| P12-06 | Toggle OFF → `stop_recording` + `send_audio_to_stt` | Click tắt toggle → `invoke('stop_recording')` → `invoke('send_audio_to_stt', { path })` → chuyển state sang `processing` | P12-02, P12-03, P12-04 | M |
+| P12-07 | Loading state khi processing | Trong lúc chờ STT response: textarea hiển thị placeholder `"Đang nhận dạng giọng nói..."`, nút Send disabled hoàn toàn | P12-06, P8-01 | S |
+| P12-08 | Điền transcript vào textarea (Draft mode) | Sau khi nhận transcript: set giá trị textarea = transcript string, focus vào textarea, chuyển state về `idle`. Không tự động submit | P12-06, P8-01 | S |
+| P12-09 | Cấu hình STT server URL | Lưu URL server vào settings (có thể dùng Tauri store hoặc file `config.json`). Mặc định `http://localhost:8080/transcribe`. Không có auth/API key | P12-03 | S |
+| P12-10 | Error handling STT | Nếu server không phản hồi hoặc lỗi HTTP: hiển thị toast error, reset state về `idle`, textarea trở lại trạng thái bình thường | P12-06 | S |
+
+**AC Phase 12:** Nhấn toggle ON → mic bắt đầu ghi. Nhấn OFF → gửi audio → nút Send disabled → nhận text → text điền vào textarea ở dạng draft. User có thể chỉnh sửa rồi mới nhấn Send. Server down → toast lỗi, không crash app.
+
+---
+
 ## Tóm tắt theo Phase
 
 | Phase | Tên | Số tasks | Size tổng |
@@ -189,7 +226,9 @@
 | 8 | Chat Input | 5 | M |
 | 9 | Layout & Polish | 7 | M |
 | 10 | Testing | 6 | M |
-| **Total** | | **73 tasks** | |
+| 11 | Layer 1 Memory | 9 | ~M |
+| 12 | Voice Mode (Batch STT) | 10 | ~L |
+| **Total** | | **92 tasks** | |
 
 ---
 
@@ -201,6 +240,10 @@ P0 → P1 → P2 → P3 → P4 → P5   (core pipeline — chạy được proce
                          P6 → P7 → P8   (UI hoàn chỉnh)
                                         ↓
                                    P9 → P10   (polish + hardening)
+                                               ↓
+                                    P11 → P12   (memory + voice)
 ```
 
 > **Note:** P3 (Process Manager) là critical path. Không nên song song hoá với P6 trở đi trước khi P3 hoạt động ổn định.
+>
+> **Note:** P11 (Memory) phụ thuộc vào P8 (Chat Input) phải hoàn chỉnh trước — vì inject logic nằm trong submit flow. P12 (Voice) độc lập với P11, có thể làm song song sau khi P8 xong.
