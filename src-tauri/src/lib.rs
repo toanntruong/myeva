@@ -7,6 +7,7 @@ use tauri::{Manager, WindowEvent};
 
 use crate::{
     commands::{
+        memory::{open_memory_file, read_memory_file},
         process::{kill_task, spawn_task},
         task::{create_task, get_all_edges, get_all_tasks, update_node_position},
     },
@@ -32,6 +33,8 @@ pub fn run() {
             update_node_position,
             spawn_task,
             kill_task,
+            read_memory_file,
+            open_memory_file,
         ])
         .on_window_event(|window, event| {
             if matches!(event, WindowEvent::CloseRequested { .. }) {
