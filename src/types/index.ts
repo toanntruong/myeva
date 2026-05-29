@@ -31,3 +31,8 @@ export interface ProcessStoppedPayload {
   task_id: string;
   exit_code: number | null;
 }
+
+export interface Message {
+  role: 'user' | 'assistant';
+  content: string;
+}
