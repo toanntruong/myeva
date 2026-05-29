@@ -37,10 +37,10 @@ Một ứng dụng Windows Desktop quản lý task theo mô hình **Layer-hóa q
 ### 2.1. Luồng vận hành chuẩn (Happy Path)
 1. Người dùng nhập yêu cầu vĩ mô vào ô Chat của **Layer 1**.
 2. **Layer 1** (LLM) xử lý bối cảnh, tự động tính toán tên thư mục/branch độc lập để tránh xung đột file system.
-3. **Layer 1** ghi nhận Task vào **SQLite** $\rightarrow$ UI lập tức vẽ ra một Node đại diện cho Layer 2 trên Graph ở trạng thái `Running`.
+3. **Layer 1** ghi nhận Task vào **SQLite** $ightarrow$ UI lập tức vẽ ra một Node đại diện cho Layer 2 trên Graph ở trạng thái `Running`.
 4. **Layer 1** gọi CLI của **Layer 2** (ví dụ: `codex-cli --prompt "..."`) chạy ngầm thông qua Terminal mặc định (Git Bash).
 5. Người dùng click vào Node trên Graph để xem stream log real-time của riêng Node đó tại Panel phải.
-6. Khi CLI kết thúc hoặc dừng lại để chờ duyệt plan thủ công, tiến trình kết thúc $\rightarrow$ Ứng dụng phát hiện Exit Code hoặc ngắt kết nối $\rightarrow$ Cập nhật SQLite và đổi trạng thái Node sang `Stopped`.
+6. Khi CLI kết thúc hoặc dừng lại để chờ duyệt plan thủ công, tiến trình kết thúc $ightarrow$ Ứng dụng phát hiện Exit Code hoặc ngắt kết nối $ightarrow$ Cập nhật SQLite và đổi trạng thái Node sang `Stopped`.
 7. Người dùng tự kiểm tra "chiến địa", duyệt plan thủ công và ra lệnh tiếp.
 
 ---
@@ -60,12 +60,35 @@ Một ứng dụng Windows Desktop quản lý task theo mô hình **Layer-hóa q
 ### 3.2. Module Quản lý Tiến trình (Process Orchestration)
 * **Parallel Execution:** Hỗ trợ chạy song song nhiều tiến trình con (Child Process) cùng lúc. Layer 1 có thể liên tục nhận lệnh mới và sinh ra các Layer 2 mới mà không cần chờ tiến trình cũ kết thúc.
 * **Process Detection:** Ứng dụng Desktop chạy ngầm lệnh trên Git Bash máy host, có nhiệm vụ bắt được sự kiện vòng đời tiến trình để cập nhật trạng thái:
-  * Tiến trình đang chạy $\rightarrow$ Trạng thái `Running` (Node sáng màu).
-  * Tiến trình kết thúc/ngắt (bất kể lý do) $\rightarrow$ Trạng thái `Stopped` (Node tối màu).
+  * Tiến trình đang chạy $ightarrow$ Trạng thái `Running` (Node sáng màu).
+  * Tiến trình kết thúc/ngắt (bất kể lý do) $ightarrow$ Trạng thái `Stopped` (Node tối màu).
 
 ### 3.3. Module Lưu trữ (Persistence)
 * Sử dụng cấu trúc cơ sở dữ liệu nhẹ **SQLite** để lưu cục bộ trên máy.
 * Lưu trữ thông tin về: Định danh Task, Lệnh CLI thực thi, Trạng thái (`Running`/`Stopped`), và vị trí/mối quan hệ của các Node trên Graph. Khi tắt/mở lại app, toàn bộ trạng thái trực quan (visual) phải được giữ nguyên.
+
+### 3.4. Module Voice Mode (Xử lý Batch - Self-hosted)
+* **Luồng tương tác (Toggle Mechanism):**
+  * Sử dụng cơ chế nút bấm chuyển đổi trạng thái (Toggle) trên UI.
+  * **Bật Toggle:** Ứng dụng kích hoạt bộ ghi âm local trên máy host (định dạng nhẹ như `.wav` hoặc `.mp3`).
+  * **Tắt Toggle:** Ngừng ghi âm, ứng dụng lập tức đóng gói file audio và gửi qua giao thức HTTP POST tới Server Voice riêng của người dùng (chạy bằng CPU thuần thông qua public domain).
+* **Trạng thái chờ (Loading State):**
+  * Trong quá trình đợi Server xử lý file (Batch STT), ô nhập Prompt tại Layer 1 sẽ **hiển thị icon loading (`...`)** và **disable hoàn toàn nút Gửi prompt** để tránh xung đột dữ liệu hoặc gửi lệnh rỗng.
+* **Xử lý kết quả:**
+  * Sau khi nhận phản hồi từ Server, văn bản (đã nhận diện tốt cả Tiếng Việt và từ chuyên ngành Tiếng Anh - Vietglish) sẽ được điền thẳng vào ô Chat.
+  * Hệ thống **không tự động gửi đi**. Người dùng có quyền chỉnh sửa, thêm bớt bằng bàn phím trước khi chủ động nhấn `Enter` hoặc click `Gửi`.
+* **An ninh & Bảo mật:** Bỏ qua các lớp xác thực (Authentication/API Key) để tối giản hóa code và cấu trúc hạ tầng trong giai đoạn này.
+
+### 3.5. Module Layer 1 Memory (File `.md` tĩnh)
+* **Cơ chế vận hành (Injection Workflow):**
+  * Tính năng này **chỉ áp dụng bắt buộc cho Layer 1 (Bộ điều phối)**, hoàn toàn chưa áp dụng cho các Agent thực thi ở Layer 2.
+  * File `memory.md` nằm ở thư mục gốc do người dùng tự chỉnh sửa thủ công bằng tay để cấu hình các quy tắc (Custom Rules), ràng buộc kiến trúc (Constraints) hoặc danh sách công việc vĩ mô.
+* **Thời điểm đọc file (File IO Trigger):**
+  * Không chạy background watcher để theo dõi file liên tục. Ứng dụng chỉ thực hiện hàm đọc file (`fs.readFileSync()`) trực tiếp từ ổ đĩa **ngay tại thời điểm người dùng nhấn nút "Gửi" prompt**.
+  * Nếu file `memory.md` không tồn tại hoặc bị lỗi đọc file, hệ thống sẽ tự động tạo một file trống hoặc áp dụng template mặc định để không làm gián đoạn luồng chat.
+* **Cấu trúc Prompt:**
+  * Với mỗi prompt được gửi đi, hệ thống sẽ tự động tiêm (inject) thêm một chỉ chỉ định cố định ở đầu bối cảnh theo cú pháp: `"Đọc file memory.md trước, sau đó... [Nội dung file memory.md] ... [Prompt của người dùng]"`.
+  * Tận dụng tối đa tính năng **Prompt Caching** của LLM (Claude) để tối ưu chi phí input token lặp lại và giảm độ trễ (latency) khi file `memory.md` phình to theo thời gian.
 
 ---
 
